@@ -1,0 +1,20 @@
+name: Release Action
+on: 
+  push:
+    tags:
+      - '*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Archive Release
+      uses: thedoctor0/zip-release@master
+      with:
+        type: 'zip'
+        filename: 'wm.spoon.zip'
+        path: 'wm/'
+    - name: Upload Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: 'wm.spoon.zip'
