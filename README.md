@@ -27,22 +27,38 @@ When initializing `wm.spoon`, the user is required to define their layouts, howe
 A collection of pre-defined geometries can be found in `wm.builtins`.
 
 ```lua
-local wm = require("wm")
+local wm = require("modules.window")
 
 wm.config.layouts = {
+    -- ┌-----------─┐
+    -- | [        ] |
+    -- | [        ] |
+    -- └------------┘
     {
-        wm.builtins.padded_left,
-        wm.builtins.padded_right,
+        wm.builtins.full,
+        wm.builtins.pip_bottom_right,
     },
+    -- ┌-----------─┐
+    -- | [   ][   ] |
+    -- | [   ][   ] |
+    -- └------------┘
     {
         wm.builtins.padded_left,
         wm.builtins.padded_right,
         wm.builtins.pip_bottom_right,
     },
+    -- ┌-----------─┐
+    -- |  [      ]  |
+    -- |  [      ]  |
+    -- └------------┘
     {
         wm.builtins.padded_center,
         wm.builtins.pip_bottom_right,
     },
+    -- ┌-----------─┐
+    -- |    [  ]    |
+    -- |    [  ]    |
+    -- └------------┘
     {
         wm.builtins.skinny,
         wm.builtins.pip_top_right,
