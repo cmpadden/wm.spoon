@@ -11,6 +11,7 @@ All notable changes to this project are documented here.
   - Cache per-app `AXEnhancedUserInterface` disablement to avoid repeated toggling.
   - Force zero-duration moves with `moveToUnit(..., 0)` to reduce stutter.
   - Minor refactors to reduce `pcall` usage on hot paths.
+  - Add bulk apply mode: temporarily disable `hs.window.setFrameCorrectness` during layout apply (config `bulk_apply_disable_frame_correctness`, default true) to reduce per-window workaround “wiggle” during batch moves.
 - Minor bug fixes, and improved guarding
     - Fix PIP geometries by computing right-edge X as `1 - padding - pip_width`.
     - Add guards when cycling focused window (nil, window type, empty layout).
