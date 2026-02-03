@@ -3,7 +3,7 @@ name: Release Action
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
   # Also run when a tag is created via the GitHub UI
   create:
   # Also support publishing a GitHub Release and manual runs
@@ -52,6 +52,22 @@ jobs:
           fi
           if [[ -z "$TAG" ]]; then
             echo "Could not determine tag from event context" >&2
+            exit 1
+          fi
+          # Normalize/validate tag format. We enforce a leading 'v' (e.g., v0.2.2).
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Auto-prefix 'v' if omitted for manual runs
+            [[ "$TAG" =~ ^v ]] || TAG="v$TAG"
+          else
+            # For tag-driven events we do not mutate; we fail fast if incorrect
+            if [[ ! "$TAG" =~ ^v ]]; then
+              echo "Tag '$TAG' does not start with 'v'. Please use tags like 'v0.2.2'." >&2
+              exit 1
+            fi
+          fi
+          # Optional: minimal semver shape check (major.minor.patch)
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '$TAG' is not in the form vMAJOR.MINOR.PATCH (e.g., v0.2.2)." >&2
             exit 1
           fi
           echo "RELEASE_TAG=$TAG" | tee -a "$GITHUB_ENV"
