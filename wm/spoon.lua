@@ -160,14 +160,24 @@ local function get_window_id(window)
     local app_name = "unknown"
     local window_id = 0
 
-    local ok_app, app = pcall(function() return window:application() end)
+    local ok_app, app = pcall(function()
+        return window:application()
+    end)
     if ok_app and app then
-        local ok_name, nm = pcall(function() return app:name() end)
-        if ok_name and nm then app_name = nm end
+        local ok_name, nm = pcall(function()
+            return app:name()
+        end)
+        if ok_name and nm then
+            app_name = nm
+        end
     end
 
-    local ok_id, wid = pcall(function() return window:id() end)
-    if ok_id and wid then window_id = wid end
+    local ok_id, wid = pcall(function()
+        return window:id()
+    end)
+    if ok_id and wid then
+        window_id = wid
+    end
 
     return string.format("%s_%d", app_name, window_id)
 end
@@ -226,22 +236,36 @@ local function disable_ax_enhanced_ui(window)
     -- See: https://github.com/Hammerspoon/hammerspoon/issues/3224#issuecomment-2155567633
     -- See: https://github.com/Hammerspoon/hammerspoon/issues/3624
     local app
-    local ok_app, res_app = pcall(function() return window and window:application() end)
-    if ok_app then app = res_app end
-    if not app then return end
+    local ok_app, res_app = pcall(function()
+        return window and window:application()
+    end)
+    if ok_app then
+        app = res_app
+    end
+    if not app then
+        return
+    end
 
     local bundleID
-    local ok_bid, bid = pcall(function() return app:bundleID() end)
+    local ok_bid, bid = pcall(function()
+        return app:bundleID()
+    end)
     if ok_bid and bid then
         bundleID = bid
     else
-        local ok_name, nm = pcall(function() return app:name() end)
+        local ok_name, nm = pcall(function()
+            return app:name()
+        end)
         bundleID = ok_name and nm or "unknown"
     end
 
-    if obj.ax_ui_disabled_apps[bundleID] then return end
+    if obj.ax_ui_disabled_apps[bundleID] then
+        return
+    end
 
-    local ok_ax, axApp = pcall(function() return hs.axuielement.applicationElement(app) end)
+    local ok_ax, axApp = pcall(function()
+        return hs.axuielement.applicationElement(app)
+    end)
     if ok_ax and axApp and axApp.AXEnhancedUserInterface then
         axApp.AXEnhancedUserInterface = false
         obj.ax_ui_disabled_apps[bundleID] = true
@@ -313,7 +337,9 @@ local function get_candidate_windows()
 
     if cfg.current_space_only then
         -- Prefer defaultCurrentSpace if available
-        local ok, wf = pcall(function() return hs.window.filter.defaultCurrentSpace end)
+        local ok, wf = pcall(function()
+            return hs.window.filter.defaultCurrentSpace
+        end)
         if ok and wf then
             windows = wf:getWindows()
         end
@@ -328,11 +354,17 @@ local function get_candidate_windows()
     if cfg.current_screen_only then
         local target_screen = nil
         local fw = hs.window.focusedWindow()
-        if fw then target_screen = fw:screen() end
-        if not target_screen then target_screen = hs.screen.mainScreen() end
+        if fw then
+            target_screen = fw:screen()
+        end
+        if not target_screen then
+            target_screen = hs.screen.mainScreen()
+        end
         local filtered = {}
         for _, w in ipairs(windows) do
-            local ok_scr, scr = pcall(function() return w:screen() end)
+            local ok_scr, scr = pcall(function()
+                return w:screen()
+            end)
             if ok_scr and scr == target_screen then
                 table.insert(filtered, w)
             end
@@ -345,11 +377,19 @@ local function get_candidate_windows()
         local filtered = {}
         for _, w in ipairs(windows) do
             local is_min = false
-            local ok_min, res_min = pcall(function() return w:isMinimized() end)
-            if ok_min then is_min = res_min end
+            local ok_min, res_min = pcall(function()
+                return w:isMinimized()
+            end)
+            if ok_min then
+                is_min = res_min
+            end
             local is_vis = true
-            local ok_vis, res_vis = pcall(function() return w:isVisible() end)
-            if ok_vis then is_vis = res_vis end
+            local ok_vis, res_vis = pcall(function()
+                return w:isVisible()
+            end)
+            if ok_vis then
+                is_vis = res_vis
+            end
             if not is_min and is_vis then
                 table.insert(filtered, w)
             end
@@ -398,7 +438,11 @@ function obj:set_layout(layout)
                 if should_ignore_window(window) then
                     log("debug", "  ⊘ Ignoring %s (in ignore list)", display_name)
                 elseif not (window:isStandard() and window:isMaximizable()) then
-                    log("debug", "  ⊘ Skipping %s (non-standard or non-maximizable)", display_name)
+                    log(
+                        "debug",
+                        "  ⊘ Skipping %s (non-standard or non-maximizable)",
+                        display_name
+                    )
                 else
                     log("debug", "Window %d: %s - attempting to move", i, display_name)
 
@@ -593,9 +637,13 @@ function obj:init()
 
     local function moveToScreen(index)
         local win = hs.window.focusedWindow()
-        if not win then return end
+        if not win then
+            return
+        end
         local screens = hs.screen.allScreens()
-        if not screens or not screens[index] then return end
+        if not screens or not screens[index] then
+            return
+        end
         win:moveToScreen(screens[index])
     end
 
