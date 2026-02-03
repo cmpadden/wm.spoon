@@ -17,6 +17,8 @@ local obj = {
         visible_only = true,
         -- Logging level: "error", "warn", "info", "debug"
         log_level = "info",
+        -- Bulk apply: temporarily disable frame correctness during layout apply
+        bulk_apply_disable_frame_correctness = true,
         layouts = {},
         application_ignore_list = {},
         bindings = {
@@ -375,51 +377,71 @@ function obj:set_layout(layout)
 
     log("info", "Found %d candidate windows to move", #all_windows)
 
-    local moved_count = 0
-    for i, window in ipairs(all_windows) do
-        if window and type(window) == "userdata" then
-            -- Try to get app name for logging, but don't filter based on it
-            local app_success, app_name = pcall(function()
-                return window:application():name()
-            end)
-            local display_name = app_success and app_name or "unknown"
+    -- Bulk apply: optionally disable frame correctness to avoid extra wiggle steps during batch
+    local original_correctness = hs.window.setFrameCorrectness
+    if self.config.bulk_apply_disable_frame_correctness then
+        hs.window.setFrameCorrectness = false
+        log("debug", "Temporarily disabled setFrameCorrectness for bulk apply")
+    end
 
-            -- Check if window should be ignored or is not manageable
-            if should_ignore_window(window) then
-                log("debug", "  ⊘ Ignoring %s (in ignore list)", display_name)
-            elseif not (window:isStandard() and window:isMaximizable()) then
-                log("debug", "  ⊘ Skipping %s (non-standard or non-maximizable)", display_name)
-            else
-                log("debug", "Window %d: %s - attempting to move", i, display_name)
+    local ok, moved_count = pcall(function()
+        local moved = 0
+        for i, window in ipairs(all_windows) do
+            if window and type(window) == "userdata" then
+                -- Try to get app name for logging, but don't filter based on it
+                local app_success, app_name = pcall(function()
+                    return window:application():name()
+                end)
+                local display_name = app_success and app_name or "unknown"
 
-                -- Try to move the window regardless of validation
-                local window_id = get_window_id(window)
-                local ix = get_window_geometry_index(layout, window_id)
+                -- Check if window should be ignored or is not manageable
+                if should_ignore_window(window) then
+                    log("debug", "  ⊘ Ignoring %s (in ignore list)", display_name)
+                elseif not (window:isStandard() and window:isMaximizable()) then
+                    log("debug", "  ⊘ Skipping %s (non-standard or non-maximizable)", display_name)
+                else
+                    log("debug", "Window %d: %s - attempting to move", i, display_name)
 
-                if ix > #active_layout then
-                    ix = 1
-                    set_window_geometry_index(layout, window_id, ix)
-                end
+                    -- Try to move the window regardless of validation
+                    local window_id = get_window_id(window)
+                    local ix = get_window_geometry_index(layout, window_id)
 
-                local target_geometry = active_layout[ix]
-                if target_geometry then
-                    disable_ax_enhanced_ui(window)
-                    local success, error = pcall(function()
-                        window:moveToUnit(target_geometry, 0)
-                    end)
+                    if ix > #active_layout then
+                        ix = 1
+                        set_window_geometry_index(layout, window_id, ix)
+                    end
 
-                    if success then
-                        log("debug", "  ✓ Successfully moved %s", display_name)
-                        moved_count = moved_count + 1
-                    else
-                        log("warn", "  ✗ Failed to move %s: %s", display_name, error)
+                    local target_geometry = active_layout[ix]
+                    if target_geometry then
+                        disable_ax_enhanced_ui(window)
+                        local success, error = pcall(function()
+                            window:moveToUnit(target_geometry, 0)
+                        end)
+
+                        if success then
+                            log("debug", "  ✓ Successfully moved %s", display_name)
+                            moved = moved + 1
+                        else
+                            log("warn", "  ✗ Failed to move %s: %s", display_name, error)
+                        end
                     end
                 end
             end
         end
+        return moved
+    end)
+
+    -- Restore frame correctness regardless of loop outcome
+    if self.config.bulk_apply_disable_frame_correctness then
+        hs.window.setFrameCorrectness = original_correctness
+        log("debug", "Restored setFrameCorrectness after bulk apply")
     end
 
-    log("info", "=== Layout Setting Complete - Moved %d windows ===", moved_count)
+    if ok then
+        log("info", "=== Layout Setting Complete - Moved %d windows ===", moved_count)
+    else
+        log("warn", "Layout apply encountered an error: %s", tostring(moved_count))
+    end
 end
 
 function obj:save_state()
