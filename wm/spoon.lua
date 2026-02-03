@@ -11,6 +11,12 @@ local obj = {
         default_layout = 2,
         state_file_path = os.getenv("HOME") .. "/.hammerspoon/_wm.spoon.state.json",
         animation_duration = 0,
+        -- Selection constraints
+        current_space_only = true,
+        current_screen_only = false,
+        visible_only = true,
+        -- Logging level: "error", "warn", "info", "debug"
+        log_level = "info",
         layouts = {},
         application_ignore_list = {},
         bindings = {
@@ -27,6 +33,8 @@ local obj = {
         -- [1] = { "window_id_1" = 1, "window_id_2" = 1 }
         -- [2] = { "window_id_1" = 1, "window_id_2" = 3 }
     },
+    -- Cache apps for which AXEnhancedUserInterface has been disabled
+    ax_ui_disabled_apps = {},
 }
 
 local split_padding = 0.08
@@ -126,6 +134,16 @@ local function ensure_layout_state(layout)
     return obj.state[layout]
 end
 
+-- Simple logger with levels
+local LOG_LEVELS = { error = 0, warn = 1, info = 2, debug = 3 }
+local function log(level, fmt, ...)
+    local cfg_level = LOG_LEVELS[(obj.config and obj.config.log_level) or "info"] or 2
+    local msg_level = LOG_LEVELS[level] or 2
+    if msg_level <= cfg_level then
+        print(string.format(fmt, ...))
+    end
+end
+
 local function get_window_geometry_index(layout, window_id)
     local layout_state = ensure_layout_state(layout)
     return layout_state[window_id] or 1
@@ -137,19 +155,17 @@ local function set_window_geometry_index(layout, window_id, index)
 end
 
 local function get_window_id(window)
-    local success, app_name = pcall(function()
-        return window:application():name()
-    end)
-    if not success or not app_name then
-        app_name = "unknown"
+    local app_name = "unknown"
+    local window_id = 0
+
+    local ok_app, app = pcall(function() return window:application() end)
+    if ok_app and app then
+        local ok_name, nm = pcall(function() return app:name() end)
+        if ok_name and nm then app_name = nm end
     end
 
-    local success2, window_id = pcall(function()
-        return window:id()
-    end)
-    if not success2 or not window_id then
-        window_id = 0
-    end
+    local ok_id, wid = pcall(function() return window:id() end)
+    if ok_id and wid then window_id = wid end
 
     return string.format("%s_%d", app_name, window_id)
 end
@@ -203,16 +219,34 @@ local function cleanup_stale_window_state()
 end
 
 local function disable_ax_enhanced_ui(window)
-    -- Disabling `AXEnhancedUserInterface` fixes the issue where applications like Firefox
-    -- require multiple retries to resize. Ideally, we would re-set this value to `true` after
-    -- resizing the window, as it's required for voice controls, but for now we'll just set it
-    -- once.
-    --
+    -- Disabling `AXEnhancedUserInterface` fixes the issue where some apps require retries to resize.
+    -- Cache the action per app to avoid repeating it on every move.
     -- See: https://github.com/Hammerspoon/hammerspoon/issues/3224#issuecomment-2155567633
     -- See: https://github.com/Hammerspoon/hammerspoon/issues/3624
-    local axApp = hs.axuielement.applicationElement(window:application())
-    if axApp.AXEnhancedUserInterface then
+    local app
+    local ok_app, res_app = pcall(function() return window and window:application() end)
+    if ok_app then app = res_app end
+    if not app then return end
+
+    local bundleID
+    local ok_bid, bid = pcall(function() return app:bundleID() end)
+    if ok_bid and bid then
+        bundleID = bid
+    else
+        local ok_name, nm = pcall(function() return app:name() end)
+        bundleID = ok_name and nm or "unknown"
+    end
+
+    if obj.ax_ui_disabled_apps[bundleID] then return end
+
+    local ok_ax, axApp = pcall(function() return hs.axuielement.applicationElement(app) end)
+    if ok_ax and axApp and axApp.AXEnhancedUserInterface then
         axApp.AXEnhancedUserInterface = false
+        obj.ax_ui_disabled_apps[bundleID] = true
+        log("debug", "AXEnhancedUserInterface disabled for app %s", tostring(bundleID))
+    else
+        -- Even if property absent or failure, avoid retrying aggressively
+        obj.ax_ui_disabled_apps[bundleID] = true
     end
 end
 
@@ -266,25 +300,80 @@ function obj:move_focused_window_next_geometry(direction)
 
     local target_geometry = _active_layout[next_index]
     disable_ax_enhanced_ui(focused_window)
-    focused_window:moveToUnit(target_geometry)
+    -- Force zero-duration move on the call site for speed
+    focused_window:moveToUnit(target_geometry, 0)
+end
+
+-- Select candidate windows according to configured constraints
+local function get_candidate_windows()
+    local cfg = obj.config or {}
+    local windows = nil
+
+    if cfg.current_space_only then
+        -- Prefer defaultCurrentSpace if available
+        local ok, wf = pcall(function() return hs.window.filter.defaultCurrentSpace end)
+        if ok and wf then
+            windows = wf:getWindows()
+        end
+    end
+
+    if windows == nil then
+        -- Fallback to all windows
+        windows = hs.window.allWindows()
+    end
+
+    -- Optionally constrain to current screen
+    if cfg.current_screen_only then
+        local target_screen = nil
+        local fw = hs.window.focusedWindow()
+        if fw then target_screen = fw:screen() end
+        if not target_screen then target_screen = hs.screen.mainScreen() end
+        local filtered = {}
+        for _, w in ipairs(windows) do
+            local ok_scr, scr = pcall(function() return w:screen() end)
+            if ok_scr and scr == target_screen then
+                table.insert(filtered, w)
+            end
+        end
+        windows = filtered
+    end
+
+    -- Optionally filter for visibility/unminimized
+    if cfg.visible_only then
+        local filtered = {}
+        for _, w in ipairs(windows) do
+            local is_min = false
+            local ok_min, res_min = pcall(function() return w:isMinimized() end)
+            if ok_min then is_min = res_min end
+            local is_vis = true
+            local ok_vis, res_vis = pcall(function() return w:isVisible() end)
+            if ok_vis then is_vis = res_vis end
+            if not is_min and is_vis then
+                table.insert(filtered, w)
+            end
+        end
+        windows = filtered
+    end
+
+    return windows or {}
 end
 
 function obj:set_layout(layout)
-    print(string.format("=== Setting Layout %d ===", layout))
+    log("info", "=== Setting Layout %d ===", layout)
     self.layout = layout
     local active_layout = self.layouts[layout]
 
     if not active_layout then
-        print(string.format("ERROR: Layout %d not found in layouts table", layout))
+        log("error", "Layout %d not found in layouts table", layout)
         return
     end
 
-    print(string.format("Layout %d has %d geometry positions", layout, #active_layout))
+    log("debug", "Layout %d has %d geometry positions", layout, #active_layout)
 
-    -- Skip aggressive validation but ensure we only move valid windows
-    local all_windows = hs.window.allWindows()
+    -- Constrain the window set per configured filters
+    local all_windows = get_candidate_windows()
 
-    print(string.format("Found %d total windows, attempting to move all", #all_windows))
+    log("info", "Found %d candidate windows to move", #all_windows)
 
     local moved_count = 0
     for i, window in ipairs(all_windows) do
@@ -297,11 +386,11 @@ function obj:set_layout(layout)
 
             -- Check if window should be ignored or is not manageable
             if should_ignore_window(window) then
-                print(string.format("  ⊘ Ignoring %s (in ignore list)", display_name))
+                log("debug", "  ⊘ Ignoring %s (in ignore list)", display_name)
             elseif not (window:isStandard() and window:isMaximizable()) then
-                print(string.format("  ⊘ Skipping %s (non-standard or non-maximizable)", display_name))
+                log("debug", "  ⊘ Skipping %s (non-standard or non-maximizable)", display_name)
             else
-                print(string.format("Window %d: %s - attempting to move", i, display_name))
+                log("debug", "Window %d: %s - attempting to move", i, display_name)
 
                 -- Try to move the window regardless of validation
                 local window_id = get_window_id(window)
@@ -316,21 +405,21 @@ function obj:set_layout(layout)
                 if target_geometry then
                     disable_ax_enhanced_ui(window)
                     local success, error = pcall(function()
-                        window:moveToUnit(target_geometry)
+                        window:moveToUnit(target_geometry, 0)
                     end)
 
                     if success then
-                        print(string.format("  ✓ Successfully moved %s", display_name))
+                        log("debug", "  ✓ Successfully moved %s", display_name)
                         moved_count = moved_count + 1
                     else
-                        print(string.format("  ✗ Failed to move %s: %s", display_name, error))
+                        log("warn", "  ✗ Failed to move %s: %s", display_name, error)
                     end
                 end
             end
         end
     end
 
-    print(string.format("=== Layout Setting Complete - Moved %d windows ===", moved_count))
+    log("info", "=== Layout Setting Complete - Moved %d windows ===", moved_count)
 end
 
 function obj:save_state()
@@ -406,7 +495,7 @@ function obj:init()
 
     -- Automatic layout application to new/focused windows.
     self.window_filter_all = hs.window.filter.new()
-    print(string.format("Window filter initialized: %s", tostring(self.window_filter_all)))
+    log("debug", "Window filter initialized: %s", tostring(self.window_filter_all))
 
     -- Consider usage of `windowCreated` and `windowFocused` for ideal resizing trigger
     -- TODO refactor this so that movement and getting layout is shared
@@ -428,7 +517,7 @@ function obj:init()
             local window_id = get_window_id(window)
             local ix = get_window_geometry_index(self.layout, window_id)
             local target_geometry = self.layouts[self.layout][ix]
-            window:moveToUnit(target_geometry)
+            window:moveToUnit(target_geometry, 0)
         end
     end)
 
