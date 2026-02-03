@@ -90,14 +90,14 @@ obj.builtins = {
     pip_bottom_right = hs.geometry({
         h = pip_height,
         w = pip_width,
-        x = (1 - 0.162),
+        x = (1 - padding - pip_width),
         y = ((1 - pip_height) - padding),
     }),
 
     pip_top_right = hs.geometry({
         h = pip_height,
         w = pip_width,
-        x = padding,
+        x = (1 - padding - pip_width),
         y = padding,
     }),
 }
@@ -241,14 +241,24 @@ end
 
 function obj:move_focused_window_next_geometry(direction)
     local focused_window = hs.window.focusedWindow()
+    if not focused_window then
+        return
+    end
     -- Skip if application is in ignore list (silent behavior)
     if should_ignore_window(focused_window) then
+        return
+    end
+    -- Only manage standard, maximizable windows
+    if not (focused_window:isStandard() and focused_window:isMaximizable()) then
         return
     end
 
     local focused_window_id = get_window_id(focused_window)
 
     local _active_layout = self.layouts[self.layout]
+    if not _active_layout or #_active_layout == 0 then
+        return
+    end
 
     local current_index = get_window_geometry_index(self.layout, focused_window_id)
     local next_index = next_index_circular(_active_layout, current_index, direction)
@@ -271,7 +281,7 @@ function obj:set_layout(layout)
 
     print(string.format("Layout %d has %d geometry positions", layout, #active_layout))
 
-    -- Skip all validation and just try to move all windows
+    -- Skip aggressive validation but ensure we only move valid windows
     local all_windows = hs.window.allWindows()
 
     print(string.format("Found %d total windows, attempting to move all", #all_windows))
@@ -285,9 +295,11 @@ function obj:set_layout(layout)
             end)
             local display_name = app_success and app_name or "unknown"
 
-            -- Check if window should be ignored
+            -- Check if window should be ignored or is not manageable
             if should_ignore_window(window) then
                 print(string.format("  ⊘ Ignoring %s (in ignore list)", display_name))
+            elseif not (window:isStandard() and window:isMaximizable()) then
+                print(string.format("  ⊘ Skipping %s (non-standard or non-maximizable)", display_name))
             else
                 print(string.format("Window %d: %s - attempting to move", i, display_name))
 
@@ -302,6 +314,7 @@ function obj:set_layout(layout)
 
                 local target_geometry = active_layout[ix]
                 if target_geometry then
+                    disable_ax_enhanced_ui(window)
                     local success, error = pcall(function()
                         window:moveToUnit(target_geometry)
                     end)
@@ -329,8 +342,13 @@ end
 
 function obj:load_state()
     local path = get_config("state_file_path")
-    obj.state = hs.json.read(path)
-    hs.alert(string.format("wm.spoon state loaded from file: %s", path))
+    local s = hs.json.read(path)
+    if type(s) == "table" then
+        obj.state = s
+        hs.alert(string.format("wm.spoon state loaded from file: %s", path))
+    else
+        hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
+    end
 end
 
 function obj:debug_window_filter()
@@ -422,10 +440,10 @@ function obj:init()
         end
     end)
 
-    -- bind layouts to corresponding 1, 2, ..., n
-    for key, _ in pairs(self.layouts) do
-        hs.hotkey.bind({ "cmd", "ctrl" }, tostring(key), function()
-            obj:set_layout(key)
+    -- bind layouts to corresponding 1, 2, ..., n in order
+    for i, _ in ipairs(self.layouts) do
+        hs.hotkey.bind({ "cmd", "ctrl" }, tostring(i), function()
+            obj:set_layout(i)
         end)
     end
 
@@ -463,8 +481,11 @@ function obj:init()
     end)
 
     local function moveToScreen(index)
+        local win = hs.window.focusedWindow()
+        if not win then return end
         local screens = hs.screen.allScreens()
-        hs.window.focusedWindow():moveToScreen(screens[index])
+        if not screens or not screens[index] then return end
+        win:moveToScreen(screens[index])
     end
 
     -- todo - move to next / previous screen
