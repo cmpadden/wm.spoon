@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- Verified move behavior (replaces blind repeats)
+  - Add ensured-move helper that verifies final frame and retries only when needed using `hs.timer.doAfter`.
+  - Use ensured moves in focused-window cycling, bulk layout apply, and `windowCreated` subscription.
+  - Maintain zero-duration moves for responsiveness; avoids layout “wiggle” while ensuring stubborn apps settle.
+- Configuration
+  - `ensure_move_verify` (default true): enable verification & conditional retry.
+  - `ensure_move_retries` (default 2): max retries when window hasn’t reached target.
+  - `ensure_move_delay_s` (default 0.05): delay between verification attempts.
+  - `ensure_move_tolerance_px` (default 2): pixel tolerance when comparing frames.
+- Bug fixes
+  - Fix Lua scoping error by forward-declaring `disable_ax_enhanced_ui` so watchers can call ensured moves safely.
+
 ## 0.2.2
 
 - Performance and behavior improvements
