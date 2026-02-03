@@ -24,48 +24,49 @@ After moving windows to their desired positions, the state can be saved using th
 
 When initializing `wm.spoon`, the user is required to define their layouts, however, they also have the option to tweak key bindings along with a variety of other options.
 
-A collection of pre-defined geometries can be found in `wm.builtins`.
+A collection of pre-defined geometries can be found in `spoon.wm.builtins`.
 
 ```lua
-local wm = require("modules.window")
+-- Load the Spoon and use spoon.wm directly
+hs.loadSpoon("wm")
 
-wm.config.layouts = {
+spoon.wm.config.layouts = {
     -- ┌-----------─┐
     -- | [        ] |
     -- | [        ] |
     -- └------------┘
     {
-        wm.builtins.full,
-        wm.builtins.pip_bottom_right,
+        spoon.wm.builtins.full,
+        spoon.wm.builtins.pip_bottom_right,
     },
     -- ┌-----------─┐
     -- | [   ][   ] |
     -- | [   ][   ] |
     -- └------------┘
     {
-        wm.builtins.padded_left,
-        wm.builtins.padded_right,
-        wm.builtins.pip_bottom_right,
+        spoon.wm.builtins.padded_left,
+        spoon.wm.builtins.padded_right,
+        spoon.wm.builtins.pip_bottom_right,
     },
     -- ┌-----------─┐
     -- |  [      ]  |
     -- |  [      ]  |
     -- └------------┘
     {
-        wm.builtins.padded_center,
-        wm.builtins.pip_bottom_right,
+        spoon.wm.builtins.padded_center,
+        spoon.wm.builtins.pip_bottom_right,
     },
     -- ┌-----------─┐
     -- |    [  ]    |
     -- |    [  ]    |
     -- └------------┘
     {
-        wm.builtins.skinny,
-        wm.builtins.pip_top_right,
+        spoon.wm.builtins.skinny,
+        spoon.wm.builtins.pip_top_right,
     },
 }
 
-wm:init()
+spoon.wm:init()
 ```
 
 ## Releases

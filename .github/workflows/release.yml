@@ -120,7 +120,7 @@ jobs:
         with:
           type: 'zip'
           filename: 'wm.spoon.zip'
-          path: 'wm/'
+          path: 'wm.spoon/'
       - name: Upload Release
         uses: ncipollo/release-action@v1
         with:
