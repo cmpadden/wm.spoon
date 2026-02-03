@@ -525,31 +525,33 @@ function obj:set_layout(layout)
                 end)
                 local display_name = app_success and app_name or "unknown"
 
-                -- Check if window should be ignored or is not manageable
+                -- Skip if application is in ignore list
                 if should_ignore_window(window) then
-                    log("debug", "  ⊘ Ignoring %s (in ignore list)", display_name)
-                elseif not (window:isStandard() and window:isMaximizable()) then
-                    log(
-                        "debug",
-                        "  ⊘ Skipping %s (non-standard or non-maximizable)",
-                        display_name
-                    )
+                    log("debug", "Skipping %s (ignored)", display_name)
                 else
-                    log("debug", "Window %d: %s - attempting to move", i, display_name)
+                    local is_standard_success, is_standard = pcall(function()
+                        return window:isStandard()
+                    end)
+                    local is_max_success, is_maximizable = pcall(function()
+                        return window:isMaximizable()
+                    end)
 
-                    -- Try to move the window regardless of validation
-                    local window_id = get_window_id(window)
-                    local ix = get_window_geometry_index(layout, window_id)
+                    if is_standard_success and is_standard and is_max_success and is_maximizable then
+                        disable_ax_enhanced_ui(window)
+                        local cached_index = get_window_geometry_index(self.layout, get_window_id(window))
+                        local target_geometry = active_layout[cached_index] or active_layout[1]
 
-                    if ix > #active_layout then
-                        ix = 1
-                        set_window_geometry_index(layout, window_id, ix)
-                    end
-
-                    local target_geometry = active_layout[ix]
-                    if target_geometry then
+                        -- Verified move (retries only when needed)
                         move_window_to_unit_ensured(window, target_geometry)
                         moved = moved + 1
+                    else
+                        log(
+                            "debug",
+                            "Skipping %s (standard=%s maximizable=%s)",
+                            display_name,
+                            tostring(is_standard_success and is_standard),
+                            tostring(is_max_success and is_maximizable)
+                        )
                     end
                 end
             end
@@ -557,78 +559,99 @@ function obj:set_layout(layout)
         return moved
     end)
 
-    -- Restore frame correctness regardless of loop outcome
-    if self.config.bulk_apply_disable_frame_correctness then
-        hs.window.setFrameCorrectness = original_correctness
-        log("debug", "Restored setFrameCorrectness after bulk apply")
-    end
-
-    if ok then
-        log("info", "=== Layout Setting Complete - Moved %d windows ===", moved_count)
+    if not ok then
+        log("error", "Error during layout application: %s", tostring(moved_count))
     else
-        log("warn", "Layout apply encountered an error: %s", tostring(moved_count))
+        log("info", "Moved %d windows", moved_count or 0)
+    end
+
+    -- Restore original correctness setting
+    hs.window.setFrameCorrectness = original_correctness
+end
+
+--- Persist object state to the file defined in config
+function obj:save_state()
+    local success, json = pcall(function()
+        return hs.json.encode(self.state, true)
+    end)
+    if not success or not json then
+        hs.alert("Failed to encode state to JSON")
+        return
+    end
+    local path = get_config("state_file_path")
+    local ok, err = pcall(function()
+        local file = io.open(path, "w")
+        if not file then
+            error("Could not open file for writing: " .. tostring(path))
+        end
+        file:write(json)
+        file:close()
+    end)
+    if ok then
+        hs.alert(string.format("wm.spoon state written to file: %s", path))
+    else
+        hs.alert("Failed to persist state: " .. tostring(err))
     end
 end
 
-function obj:save_state()
-    cleanup_stale_window_state()
-    local path = get_config("state_file_path")
-    hs.json.write(self.state, path, true, true)
-    hs.alert(string.format("wm.spoon state written to file: %s", path))
-end
-
+--- Restore object state from the file defined in config
 function obj:load_state()
     local path = get_config("state_file_path")
-    local s = hs.json.read(path)
-    if type(s) == "table" then
-        obj.state = s
+    local ok, res = pcall(function()
+        local file = io.open(path, "r")
+        if not file then
+            return nil
+        end
+        local data = file:read("*a")
+        file:close()
+        return data
+    end)
+
+    if not ok or not res then
+        hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
+        return
+    end
+
+    local ok_json, state = pcall(function()
+        return hs.json.decode(res)
+    end)
+
+    if ok_json and type(state) == "table" then
+        self.state = state
         hs.alert(string.format("wm.spoon state loaded from file: %s", path))
     else
         hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
     end
 end
 
-function obj:debug_window_filter()
-    print("=== Window Filter Debug ===")
-    print(string.format("Filter object: %s", tostring(self.window_filter_all)))
-
-    local filter_windows = self.window_filter_all:getWindows()
-    local all_windows = hs.window.allWindows()
-
-    print(string.format("Filter returned: %d windows", filter_windows and #filter_windows or 0))
-    print(string.format("hs.window.allWindows returned: %d windows", #all_windows))
-
-    print("All windows from hs.window.allWindows():")
-    for i, window in ipairs(all_windows) do
+--- Debug helper to print all windows and basic attributes
+function obj:debug_windows()
+    print("=== Windows Debug ===")
+    local windows = hs.window.allWindows()
+    for i, window in ipairs(windows) do
         if window and type(window) == "userdata" then
-            local success, is_valid = pcall(function()
-                return window:isValid()
+            local app_success, app_name = pcall(function()
+                return window:application():name()
             end)
-            if success and is_valid then
-                local app_success, app_name = pcall(function()
-                    return window:application():name()
-                end)
-                local is_standard_success, is_standard = pcall(function()
-                    return window:isStandard()
-                end)
-                local is_max_success, is_maximizable = pcall(function()
-                    return window:isMaximizable()
-                end)
+            local is_standard_success, is_standard = pcall(function()
+                return window:isStandard()
+            end)
 
-                print(
-                    string.format(
-                        "  %d: %s - standard:%s, maximizable:%s",
-                        i,
-                        app_success and app_name or "unknown",
-                        is_standard_success and tostring(is_standard) or "error",
-                        is_max_success and tostring(is_maximizable) or "error"
-                    )
+            local is_max_success, is_maximizable = pcall(function()
+                return window:isMaximizable()
+            end)
+
+            print(
+                string.format(
+                    "  %d: %s - standard:%s, maximizable:%s",
+                    i,
+                    app_success and app_name or "unknown",
+                    is_standard_success and tostring(is_standard) or "error",
+                    is_max_success and tostring(is_maximizable) or "error"
                 )
-            else
-                print(string.format("  %d: INVALID WINDOW", i))
-            end
+            )
         else
-            print(string.format("  %d: NIL or non-userdata", i))
+            print(string.format("  %d: INVALID WINDOW", i))
         end
     end
     print("=== Debug Complete ===")
@@ -739,3 +762,4 @@ function obj:init()
 end
 
 return obj
+

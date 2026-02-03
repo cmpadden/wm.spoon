@@ -15,6 +15,14 @@ All notable changes to this project are documented here.
   - `ensure_move_tolerance_px` (default 2): pixel tolerance when comparing frames.
 - Bug fixes
   - Fix Lua scoping error by forward-declaring `disable_ax_enhanced_ui` so watchers can call ensured moves safely.
+ - Packaging & structure
+   - Rename and restructure to canonical Spoon bundle: `wm.spoon/` with implementation consolidated into `init.lua`.
+   - Remove legacy `wm/` source layout and `spoon.lua`; entrypoint is now `wm.spoon/init.lua`.
+   - Update release workflow to zip `wm.spoon/` so the artifact unpacks to a proper `.spoon` bundle.
+ - Documentation
+   - Update README usage to the concise pattern: `hs.loadSpoon("wm"); spoon.wm.config.layouts = {...}; spoon.wm:init()`.
+ - Breaking changes
+   - Direct `require` of the old module path is no longer supported; consumers should use `hs.loadSpoon("wm")` and access the object via `spoon.wm`.
 
 ## 0.2.2
 
