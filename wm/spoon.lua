@@ -19,6 +19,11 @@ local obj = {
         log_level = "info",
         -- Bulk apply: temporarily disable frame correctness during layout apply
         bulk_apply_disable_frame_correctness = true,
+        -- Verify-and-retry move (only when needed)
+        ensure_move_verify = true,
+        ensure_move_retries = 2,
+        ensure_move_delay_s = 0.05,
+        ensure_move_tolerance_px = 2,
         layouts = {},
         application_ignore_list = {},
         bindings = {
@@ -156,6 +161,93 @@ local function set_window_geometry_index(layout, window_id, index)
     layout_state[window_id] = index
 end
 
+-- Convert a unit rect to a screen-absolute rect for a given window's screen
+local function unit_rect_to_rect_for_window(unit_rect, window)
+    local screen = window and window:screen() or hs.screen.mainScreen()
+    local screen_frame = screen:frame()
+    return hs.geometry.rect(
+        screen_frame.x + (unit_rect.x * screen_frame.w),
+        screen_frame.y + (unit_rect.y * screen_frame.h),
+        unit_rect.w * screen_frame.w,
+        unit_rect.h * screen_frame.h
+    )
+end
+
+-- Forward declare to allow use before definition
+local disable_ax_enhanced_ui
+
+-- Per-window in-progress guard to avoid overlapping ensure cycles
+obj._ensure_in_progress = {}
+
+-- Move a window to a unit rect, then verify and retry only if needed.
+-- Retries are scheduled with a small delay and capped by config.
+local function move_window_to_unit_ensured(window, unit_rect)
+    if not window or not unit_rect then
+        return
+    end
+    disable_ax_enhanced_ui(window)
+    -- Initial attempt, zero-duration for speed
+    pcall(function()
+        window:moveToUnit(unit_rect, 0)
+    end)
+
+    if not obj.config.ensure_move_verify then
+        return
+    end
+
+    local ok_id, wid = pcall(function()
+        return window:id()
+    end)
+    local key = ok_id and tostring(wid) or tostring(window)
+    if obj._ensure_in_progress[key] then
+        return
+    end
+    obj._ensure_in_progress[key] = true
+
+    local retries = obj.config.ensure_move_retries or 2
+    local delay = obj.config.ensure_move_delay_s or 0.05
+    local tol = obj.config.ensure_move_tolerance_px or 2
+
+    local function close_enough(a, b)
+        return math.abs(a - b) <= tol
+    end
+
+    local function verify_and_retry()
+        -- Calculate desired rect against the window's current screen
+        local desired = unit_rect_to_rect_for_window(unit_rect, window):floor()
+        local current = window:frame():floor()
+
+        if
+            close_enough(current.x, desired.x)
+            and close_enough(current.y, desired.y)
+            and close_enough(current.w, desired.w)
+            and close_enough(current.h, desired.h)
+        then
+            obj._ensure_in_progress[key] = nil
+            return
+        end
+
+        if retries > 0 then
+            retries = retries - 1
+            pcall(function()
+                window:moveToUnit(unit_rect, 0)
+            end)
+            hs.timer.doAfter(delay, verify_and_retry)
+        else
+            log(
+                "debug",
+                "Move verification exhausted for %s (current=%s desired=%s)",
+                tostring(key),
+                tostring(current),
+                tostring(desired)
+            )
+            obj._ensure_in_progress[key] = nil
+        end
+    end
+
+    hs.timer.doAfter(delay, verify_and_retry)
+end
+
 local function get_window_id(window)
     local app_name = "unknown"
     local window_id = 0
@@ -230,7 +322,7 @@ local function cleanup_stale_window_state()
     end
 end
 
-local function disable_ax_enhanced_ui(window)
+disable_ax_enhanced_ui = function(window)
     -- Disabling `AXEnhancedUserInterface` fixes the issue where some apps require retries to resize.
     -- Cache the action per app to avoid repeating it on every move.
     -- See: https://github.com/Hammerspoon/hammerspoon/issues/3224#issuecomment-2155567633
@@ -325,9 +417,8 @@ function obj:move_focused_window_next_geometry(direction)
     set_window_geometry_index(self.layout, focused_window_id, next_index)
 
     local target_geometry = _active_layout[next_index]
-    disable_ax_enhanced_ui(focused_window)
-    -- Force zero-duration move on the call site for speed
-    focused_window:moveToUnit(target_geometry, 0)
+    -- Verified move (retries only when needed)
+    move_window_to_unit_ensured(focused_window, target_geometry)
 end
 
 -- Select candidate windows according to configured constraints
@@ -457,17 +548,8 @@ function obj:set_layout(layout)
 
                     local target_geometry = active_layout[ix]
                     if target_geometry then
-                        disable_ax_enhanced_ui(window)
-                        local success, error = pcall(function()
-                            window:moveToUnit(target_geometry, 0)
-                        end)
-
-                        if success then
-                            log("debug", "  ✓ Successfully moved %s", display_name)
-                            moved = moved + 1
-                        else
-                            log("warn", "  ✗ Failed to move %s: %s", display_name, error)
-                        end
+                        move_window_to_unit_ensured(window, target_geometry)
+                        moved = moved + 1
                     end
                 end
             end
@@ -579,11 +661,10 @@ function obj:init()
         --
         if window:isStandard() and window:isMaximizable() then
             hs.alert("Initializing " .. app_name)
-            disable_ax_enhanced_ui(window)
             local window_id = get_window_id(window)
             local ix = get_window_geometry_index(self.layout, window_id)
             local target_geometry = self.layouts[self.layout][ix]
-            window:moveToUnit(target_geometry, 0)
+            move_window_to_unit_ensured(window, target_geometry)
         end
     end)
 
