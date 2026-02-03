@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## 0.2.2
 
 - Performance and behavior improvements
   - Constrain window selection during `set_layout()` using `hs.window.filter` for current Space, with optional filters for current screen and visibility.
