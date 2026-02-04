@@ -2,11 +2,19 @@
 
 # wm.spoon
 
-Window manager built on top of [Hammerspoon](https://www.hammerspoon.org/) -- the powerful automation framework for macOS.
+Window manager built on top of [Hammerspoon](https://www.hammerspoon.org/)--the automation framework for macOS.
 
 ## Installation
 
-Download the latest [release](https://github.com/cmpadden/wm.spoon/releases/) from the side panel, decompress the file, and double click the Spoon. 
+Download the latest [release](https://github.com/cmpadden/wm.spoon/releases/), decompress the file, and double click the Spoon, or run the following commands:
+
+```bash
+   # Replace <v0.2.3> with your desired version
+ λ curl -L -O "https://github.com/cmpadden/wm.spoon/releases/download/v0.2.3/wm.spoon.zip"
+
+   # The Hammerspoon Console should open and indicate that plugin has loaded
+ λ unzip wm.spoon.zip && open wm.spoon
+```
 
 Refer to the [official documentation](https://github.com/Hammerspoon/hammerspoon/blob/master/SPOONS.md) for more information on Spoons, and how to install them.
 
@@ -27,7 +35,6 @@ When initializing `wm.spoon`, the user is required to define their layouts, howe
 A collection of pre-defined geometries can be found in `spoon.wm.builtins`.
 
 ```lua
--- Load the Spoon and use spoon.wm directly
 hs.loadSpoon("wm")
 
 spoon.wm.config.layouts = {
@@ -68,21 +75,6 @@ spoon.wm.config.layouts = {
 
 spoon.wm:init()
 ```
-
-## Releases
-
-Releases are triggered on tag creation as defined by the `.github/workflows/release.yml` GitHub action.
-
-```bash
-git tag v0.1
-git push origin v0.1
-```
-
-## Raison d'être
-
-This is an opinionated window management system that adheres to the workflow that I find most intuitive. For several years I used the tiling window managers like i3wm, but did not find something that suited my needs on macOS. This is not intended to as powerful as a manager like that, nor is it a tiling window manager. Instead, this is the byproduct of me playing around with Hammerspoon in my spare time.
-
-Feedback and contributions are welcome, however, drastic changes would likely be better suited as a fork.
 
 ---
 
