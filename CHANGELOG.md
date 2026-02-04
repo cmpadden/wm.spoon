@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## [0.2.3](https://github.com/cmpadden/wm.spoon/releases/tag/v0.2.3)
 
 - Verified move behavior (replaces blind repeats)
   - Add ensured-move helper that verifies final frame and retries only when needed using `hs.timer.doAfter`.
@@ -24,7 +24,7 @@ All notable changes to this project are documented here.
  - Breaking changes
    - Direct `require` of the old module path is no longer supported; consumers should use `hs.loadSpoon("wm")` and access the object via `spoon.wm`.
 
-## 0.2.2
+## [0.2.2](https://github.com/cmpadden/wm.spoon/releases/tag/v0.2.2)
 
 - Performance and behavior improvements
   - Constrain window selection during `set_layout()` using `hs.window.filter` for current Space, with optional filters for current screen and visibility.
@@ -41,6 +41,6 @@ All notable changes to this project are documented here.
     - Handle invalid or missing state in `load_state()` without clobbering state.
     - Bind layouts deterministically with `ipairs` and guard screen move hotkeys.
 
-## 0.2.1
+## [0.2.1](https://github.com/cmpadden/wm.spoon/releases/tag/v0.2.1)
 
 - Changelog inception.
