@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.4
+
+- Remember the selected layout and per-window geometry slots when Hammerspoon reloads or quits, and apply the saved layout on startup.
+- Keep existing state files compatible. If no saved layout is available or the saved layout was removed, use `config.default_layout`.
+- Set `config.auto_persist_state = false` to opt out of automatic persistence. Manual save and restore remain available.
+- Add command-line installation instructions to the README.
+
 ## [0.2.3](https://github.com/cmpadden/wm.spoon/releases/tag/v0.2.3)
 
 - Verified move behavior (replaces blind repeats)
