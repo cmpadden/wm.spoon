@@ -10,6 +10,7 @@ local obj = {
     config = {
         default_layout = 2,
         state_file_path = os.getenv("HOME") .. "/.hammerspoon/_wm.spoon.state.json",
+        auto_persist_state = true,
         animation_duration = 0,
         -- Selection constraints
         current_space_only = true,
@@ -413,6 +414,9 @@ function obj:move_focused_window_next_geometry(direction)
     end
 
     local current_index = get_window_geometry_index(self.layout, focused_window_id)
+    if current_index > #_active_layout then
+        current_index = 1
+    end
     local next_index = next_index_circular(_active_layout, current_index, direction)
     set_window_geometry_index(self.layout, focused_window_id, next_index)
 
@@ -492,15 +496,14 @@ local function get_candidate_windows()
 end
 
 function obj:set_layout(layout)
-    log("info", "=== Setting Layout %d ===", layout)
-    self.layout = layout
     local active_layout = self.layouts[layout]
-
     if not active_layout then
-        log("error", "Layout %d not found in layouts table", layout)
+        log("error", "Layout %s not found in layouts table", tostring(layout))
         return
     end
 
+    self.layout = layout
+    log("info", "=== Setting Layout %d ===", layout)
     log("debug", "Layout %d has %d geometry positions", layout, #active_layout)
 
     -- Constrain the window set per configured filters
@@ -536,9 +539,15 @@ function obj:set_layout(layout)
                         return window:isMaximizable()
                     end)
 
-                    if is_standard_success and is_standard and is_max_success and is_maximizable then
+                    if
+                        is_standard_success
+                        and is_standard
+                        and is_max_success
+                        and is_maximizable
+                    then
                         disable_ax_enhanced_ui(window)
-                        local cached_index = get_window_geometry_index(self.layout, get_window_id(window))
+                        local cached_index =
+                            get_window_geometry_index(self.layout, get_window_id(window))
                         local target_geometry = active_layout[cached_index] or active_layout[1]
 
                         -- Verified move (retries only when needed)
@@ -569,59 +578,59 @@ function obj:set_layout(layout)
     hs.window.setFrameCorrectness = original_correctness
 end
 
---- Persist object state to the file defined in config
-function obj:save_state()
-    local success, json = pcall(function()
-        return hs.json.encode(self.state, true)
-    end)
-    if not success or not json then
-        hs.alert("Failed to encode state to JSON")
-        return
-    end
+--- Persist the selected layout alongside the per-layout window slots.
+function obj:save_state(quiet)
     local path = get_config("state_file_path")
-    local ok, err = pcall(function()
-        local file = io.open(path, "w")
-        if not file then
-            error("Could not open file for writing: " .. tostring(path))
-        end
-        file:write(json)
-        file:close()
-    end)
-    if ok then
-        hs.alert(string.format("wm.spoon state written to file: %s", path))
-    else
-        hs.alert("Failed to persist state: " .. tostring(err))
+    local raw = { active_layout = self.layout }
+    for layout, windows in pairs(self.state) do
+        raw[tostring(layout)] = windows
     end
+    local ok = hs.json.write(raw, path, true, true)
+    if not ok then
+        log("error", "wm.spoon could not write state to: %s", path)
+    end
+    if not quiet then
+        local message = ok and "wm.spoon state written to file: %s"
+            or "wm.spoon could not write state to: %s"
+        hs.alert(string.format(message, path))
+    end
+    return ok
 end
 
---- Restore object state from the file defined in config
-function obj:load_state()
+--- Load both legacy geometry-only state and state with a selected layout.
+function obj:load_state(quiet)
     local path = get_config("state_file_path")
-    local ok, res = pcall(function()
-        local file = io.open(path, "r")
-        if not file then
-            return nil
+    local raw = hs.fs.attributes(path, "mode") == "file" and hs.json.read(path)
+    if type(raw) ~= "table" then
+        if not quiet then
+            hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
         end
-        local data = file:read("*a")
-        file:close()
-        return data
-    end)
-
-    if not ok or not res then
-        hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
-        return
+        return false
     end
 
-    local ok_json, state = pcall(function()
-        return hs.json.decode(res)
-    end)
-
-    if ok_json and type(state) == "table" then
-        self.state = state
+    local state = {}
+    for key, windows in pairs(raw) do
+        local layout = math.tointeger(tonumber(key))
+        if layout and layout > 0 and type(windows) == "table" then
+            local slots = {}
+            for window, value in pairs(windows) do
+                local index = math.tointeger(tonumber(value))
+                if index and index > 0 then
+                    slots[window] = index
+                end
+            end
+            state[layout] = slots
+        end
+    end
+    self.state = state
+    local selected = tonumber(raw.active_layout)
+    if selected and self.layouts[selected] then
+        self:set_layout(selected)
+    end
+    if not quiet then
         hs.alert(string.format("wm.spoon state loaded from file: %s", path))
-    else
-        hs.alert(string.format("wm.spoon no valid state to load at: %s", path))
     end
+    return true
 end
 
 --- Debug helper to print all windows and basic attributes
@@ -664,6 +673,23 @@ function obj:init()
     self.layout = get_config("default_layout")
     self.layouts = get_config("layouts")
 
+    if self.config.auto_persist_state then
+        self:load_state(true)
+        -- Install once per Spoon instance and keep any existing callback alive.
+        if not self._shutdown_callback then
+            local previous_shutdown = hs.shutdownCallback
+            self._shutdown_callback = function()
+                if self.config.auto_persist_state then
+                    self:save_state(true)
+                end
+                if previous_shutdown then
+                    previous_shutdown()
+                end
+            end
+            hs.shutdownCallback = self._shutdown_callback
+        end
+    end
+
     -- Automatic layout application to new/focused windows.
     self.window_filter_all = hs.window.filter.new()
     log("debug", "Window filter initialized: %s", tostring(self.window_filter_all))
@@ -686,8 +712,10 @@ function obj:init()
             hs.alert("Initializing " .. app_name)
             local window_id = get_window_id(window)
             local ix = get_window_geometry_index(self.layout, window_id)
-            local target_geometry = self.layouts[self.layout][ix]
-            move_window_to_unit_ensured(window, target_geometry)
+            local geometries = self.layouts[self.layout]
+            if geometries then
+                move_window_to_unit_ensured(window, geometries[ix] or geometries[1])
+            end
         end
     end)
 
@@ -762,4 +790,3 @@ function obj:init()
 end
 
 return obj
-

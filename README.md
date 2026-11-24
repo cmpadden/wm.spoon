@@ -26,7 +26,11 @@ The user defines an table of layouts on `config.layouts`, which are bound to `<p
 
 Then, the user can cycle the position of a window between the geometries of this layout using `<prefix> + h`, and `<prefix> + l` by default.
 
-After moving windows to their desired positions, the state can be saved using the default binding of `<prefix> + -`.
+The selected layout and per-window geometry slots are saved when Hammerspoon
+reloads or quits. On startup, the Spoon restores and applies the saved layout
+if it still exists; otherwise it uses `config.default_layout`. Set
+`spoon.wm.config.auto_persist_state = false` before `init()` to opt out.
+You can still save and restore manually with `<prefix> + -` and `<prefix> + =`.
 
 ## Configuration
 
